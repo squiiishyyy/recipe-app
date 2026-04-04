@@ -5,13 +5,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import func
 from datetime import datetime
 import os
-from werkzeug.utils import secure_filename
+import cloudinary
+import cloudinary.uploader
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'fallback-key-for-local-dev')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///recipes.db')
 
 # Render gives a URL starting with postgres:// but SQLAlchemy needs postgresql://
@@ -19,6 +18,12 @@ if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+
+cloudinary.config(
+    cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    api_key    = os.environ.get('CLOUDINARY_API_KEY'),
+    api_secret = os.environ.get('CLOUDINARY_API_SECRET')
+)
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -158,9 +163,8 @@ def new_recipe():
         image_url = ''
         file = request.files.get('image')
         if file and file.filename and allowed_file(file.filename):
-            filename  = secure_filename(file.filename)
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            image_url = url_for('static', filename=f'uploads/{filename}')
+            result    = cloudinary.uploader.upload(file)
+            image_url = result['secure_url']
 
         recipe = Recipe(
             title        = request.form.get('title', '').strip(),
@@ -193,9 +197,8 @@ def edit_recipe(recipe_id):
     if request.method == 'POST':
         file = request.files.get('image')
         if file and file.filename and allowed_file(file.filename):
-            filename         = secure_filename(file.filename)
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            recipe.image_url = url_for('static', filename=f'uploads/{filename}')
+            result           = cloudinary.uploader.upload(file)
+            recipe.image_url = result['secure_url']
 
         recipe.title        = request.form.get('title', '').strip()
         recipe.description  = request.form.get('description', '').strip()
