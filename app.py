@@ -7,11 +7,16 @@ from datetime import datetime
 import os
 import cloudinary
 import cloudinary.uploader
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from flask_cors import CORS
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'fallback-key-for-local-dev')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///recipes.db')
+app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'jwt-secret-key')
+CORS(app)
+jwt = JWTManager(app)
 
 # Render gives a URL starting with postgres:// but SQLAlchemy needs postgresql://
 if database_url.startswith('postgres://'):
@@ -315,6 +320,202 @@ def api_recipes():
         'servings':  r.servings,
         'image_url': r.image_url,
     } for r in recipes])
+
+
+# ─── Mobile API Routes ────────────────────────────────────────────────────────
+
+@app.route('/api/register', methods=['POST'])
+def api_register():
+    try:
+        data     = request.get_json(force=True)
+        username = data.get('username', '').strip()
+        email    = data.get('email', '').strip()
+        password = data.get('password', '')
+
+        if not username or not email or not password:
+            return jsonify({'error': 'All fields are required'}), 400
+        if User.query.filter_by(username=username).first():
+            return jsonify({'error': 'Username already taken'}), 400
+        if User.query.filter_by(email=email).first():
+            return jsonify({'error': 'Email already registered'}), 400
+
+        user = User(username=username, email=email)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+
+        token = create_access_token(identity=str(user.id))
+        return jsonify({'token': token, 'username': user.username}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    try:
+        data     = request.get_json(force=True)
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+
+        if not username or not password:
+            return jsonify({'error': 'Username and password are required'}), 400
+
+        user = User.query.filter_by(username=username).first()
+        if not user or not user.check_password(password):
+            return jsonify({'error': 'Invalid username or password'}), 401
+
+        token = create_access_token(identity=str(user.id))
+        return jsonify({'token': token, 'username': user.username}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/recipes', methods=['GET'])
+def api_get_recipes():
+    query      = request.args.get('q', '').strip()
+    category   = request.args.get('category', '')
+    ingredient = request.args.get('ingredient', '').strip()
+    max_time   = request.args.get('max_time', '')
+
+    recipes_query = Recipe.query
+
+    if query:
+        recipes_query = recipes_query.filter(Recipe.title.ilike(f'%{query}%'))
+    if category:
+        recipes_query = recipes_query.filter_by(category=category)
+
+    ingredient_terms = [t.strip() for t in ingredient.split(',') if t.strip()]
+    for term in ingredient_terms:
+        recipes_query = recipes_query.filter(Recipe.ingredients.ilike(f'%{term}%'))
+
+    if max_time:
+        total_time = func.coalesce(Recipe.prep_time, 0) + func.coalesce(Recipe.cook_time, 0)
+        recipes_query = recipes_query.filter(total_time <= int(max_time))
+
+    recipes = recipes_query.order_by(Recipe.created_at.desc()).all()
+    return jsonify([{
+        'id':           r.id,
+        'title':        r.title,
+        'description':  r.description,
+        'category':     r.category,
+        'ingredients':  r.ingredients,
+        'instructions': r.instructions,
+        'prep_time':    r.prep_time,
+        'cook_time':    r.cook_time,
+        'servings':     r.servings,
+        'image_url':    r.image_url,
+        'notes':        r.notes,
+        'author':       r.author.username,
+        'user_id':      r.user_id,
+    } for r in recipes])
+
+
+@app.route('/api/recipes/<int:recipe_id>', methods=['GET'])
+def api_get_recipe(recipe_id):
+    r = Recipe.query.get_or_404(recipe_id)
+    return jsonify({
+        'id':           r.id,
+        'title':        r.title,
+        'description':  r.description or '',
+        'category':     r.category or '',
+        'ingredients':  r.ingredients or '',
+        'instructions': r.instructions or '',
+        'prep_time':    r.prep_time,
+        'cook_time':    r.cook_time,
+        'servings':     r.servings,
+        'image_url':    r.image_url or '',
+        'notes':        r.notes or '',
+        'author':       r.author.username if r.author else 'Unknown',
+        'user_id':      r.user_id or 0,
+    })
+
+
+@app.route('/api/recipes', methods=['POST'])
+@jwt_required()
+def api_create_recipe():
+    user_id = int(get_jwt_identity())
+    data    = request.get_json()
+    recipe  = Recipe(
+        title        = data.get('title', '').strip(),
+        description  = data.get('description', '').strip(),
+        ingredients  = data.get('ingredients', '').strip(),
+        instructions = data.get('instructions', '').strip(),
+        category     = data.get('category', 'Other'),
+        prep_time    = int(data.get('prep_time') or 0),
+        cook_time    = int(data.get('cook_time') or 0),
+        servings     = int(data.get('servings') or 1),
+        image_url    = data.get('image_url', ''),
+        notes        = data.get('notes', '').strip(),
+        user_id      = user_id,
+    )
+    db.session.add(recipe)
+    db.session.commit()
+    return jsonify({'id': recipe.id, 'message': 'Recipe created'}), 201
+
+
+@app.route('/api/recipes/<int:recipe_id>', methods=['DELETE'])
+@jwt_required()
+def api_delete_recipe(recipe_id):
+    user_id = int(get_jwt_identity())
+    recipe  = Recipe.query.get_or_404(recipe_id)
+    if recipe.user_id != user_id:
+        return jsonify({'error': 'Unauthorized'}), 403
+    db.session.delete(recipe)
+    db.session.commit()
+    return jsonify({'message': 'Recipe deleted'}), 200
+
+
+@app.route('/api/favorites', methods=['GET'])
+@jwt_required()
+def api_get_favorites():
+    user_id = int(get_jwt_identity())
+    user    = User.query.get_or_404(user_id)
+    recipes = user.favorited_recipes.all()
+    return jsonify([{
+        'id':        r.id,
+        'title':     r.title,
+        'category':  r.category,
+        'image_url': r.image_url,
+        'prep_time': r.prep_time,
+        'cook_time': r.cook_time,
+        'servings':  r.servings,
+    } for r in recipes])
+
+
+@app.route('/api/favorites/<int:recipe_id>', methods=['POST'])
+@jwt_required()
+def api_toggle_favorite(recipe_id):
+    user_id = int(get_jwt_identity())
+    user    = User.query.get_or_404(user_id)
+    recipe  = Recipe.query.get_or_404(recipe_id)
+
+    if recipe in user.favorited_recipes:
+        user.favorited_recipes.remove(recipe)
+        db.session.commit()
+        return jsonify({'favorited': False}), 200
+    else:
+        user.favorited_recipes.append(recipe)
+        db.session.commit()
+        return jsonify({'favorited': True}), 200
+
+
+@app.route('/api/user/<username>', methods=['GET'])
+def api_user_profile(username):
+    user    = User.query.filter_by(username=username).first_or_404()
+    recipes = Recipe.query.filter_by(user_id=user.id).order_by(Recipe.created_at.desc()).all()
+    return jsonify({
+        'username':    user.username,
+        'member_since': user.created_at.strftime('%B %Y'),
+        'recipe_count': len(recipes),
+        'recipes': [{
+            'id':        r.id,
+            'title':     r.title,
+            'category':  r.category,
+            'image_url': r.image_url,
+            'prep_time': r.prep_time,
+            'cook_time': r.cook_time,
+        } for r in recipes]
+    })
 
 
 with app.app_context():
