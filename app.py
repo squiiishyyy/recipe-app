@@ -412,22 +412,25 @@ def api_get_recipes():
 
 @app.route('/api/recipes/<int:recipe_id>', methods=['GET'])
 def api_get_recipe(recipe_id):
-    r = Recipe.query.get_or_404(recipe_id)
-    return jsonify({
-        'id':           r.id,
-        'title':        r.title,
-        'description':  r.description or '',
-        'category':     r.category or '',
-        'ingredients':  r.ingredients or '',
-        'instructions': r.instructions or '',
-        'prep_time':    r.prep_time,
-        'cook_time':    r.cook_time,
-        'servings':     r.servings,
-        'image_url':    r.image_url or '',
-        'notes':        r.notes or '',
-        'author':       r.author.username if r.author else 'Unknown',
-        'user_id':      r.user_id or 0,
-    })
+    try:
+        r = Recipe.query.get_or_404(recipe_id)
+        return jsonify({
+            'id':           r.id,
+            'title':        r.title or '',
+            'description':  r.description or '',
+            'category':     r.category or '',
+            'ingredients':  r.ingredients or '',
+            'instructions': r.instructions or '',
+            'prep_time':    r.prep_time or 0,
+            'cook_time':    r.cook_time or 0,
+            'servings':     r.servings or 0,
+            'image_url':    r.image_url or '',
+            'notes':        r.notes or '',
+            'author':       r.author.username if r.user_id and r.author else 'Unknown',
+            'user_id':      r.user_id or 0,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/recipes', methods=['POST'])
