@@ -83,6 +83,7 @@ class Recipe(db.Model):
     cook_time     = db.Column(db.Integer)                # minutes
     servings      = db.Column(db.Integer)
     image_url     = db.Column(db.String(500))
+    notes         = db.Column(db.Text)
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
@@ -181,6 +182,7 @@ def new_recipe():
             cook_time    = int(request.form.get('cook_time') or 0),
             servings     = int(request.form.get('servings') or 1),
             image_url    = image_url,
+            notes        = request.form.get('notes', '').strip(),
             user_id      = current_user.id,
         )
         db.session.add(recipe)
@@ -213,6 +215,7 @@ def edit_recipe(recipe_id):
         recipe.prep_time    = int(request.form.get('prep_time') or 0)
         recipe.cook_time    = int(request.form.get('cook_time') or 0)
         recipe.servings     = int(request.form.get('servings') or 1)
+        recipe.notes        = request.form.get('notes', '').strip()
         recipe.updated_at   = datetime.utcnow()
         db.session.commit()
         flash('Recipe updated!', 'success')
@@ -306,20 +309,6 @@ def user_profile(username):
     return render_template('profile.html', profile_user=user, recipes=recipes)
 
 
-# ─── API (bonus) ──────────────────────────────────────────────────────────────
-
-@app.route('/api/recipes')
-def api_recipes():
-    recipes = Recipe.query.order_by(Recipe.created_at.desc()).all()
-    return jsonify([{
-        'id':        r.id,
-        'title':     r.title,
-        'category':  r.category,
-        'prep_time': r.prep_time,
-        'cook_time': r.cook_time,
-        'servings':  r.servings,
-        'image_url': r.image_url,
-    } for r in recipes])
 
 
 # ─── Mobile API Routes ────────────────────────────────────────────────────────

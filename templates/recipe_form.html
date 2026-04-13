@@ -241,6 +241,13 @@
         class="btn btn-outline">Cancel</a>
     </div>
 
+    <!-- Notes -->
+    <div class="form-group">
+      <label for="notes">Additional Notes</label>
+      <textarea id="notes" name="notes" rows="3"
+        placeholder="Tips, substitutions, storage instructions…">{{ recipe.notes if recipe else '' }}</textarea>
+    </div>
+
   </form>
 </div>
 

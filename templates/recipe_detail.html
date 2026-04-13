@@ -112,6 +112,26 @@
     align-items: center;
   }
   .recipe-date { margin-left: auto; font-size: .82rem; color: var(--muted); }
+  /* ── Notes ──────────────────────────────────────────────────── */
+  .recipe-notes {
+    background: var(--paper);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 1.25rem 1.5rem;
+    margin-top: 2rem;
+  }
+
+  .recipe-notes h3 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.1rem;
+    margin-bottom: .5rem;
+  }
+
+  .recipe-notes p {
+  font-size: .95rem;
+  color: var(--muted);
+  line-height: 1.7;
+  }
 
 </style>
 {% endblock %}
@@ -182,6 +202,12 @@
           <div class="step-text">{{ step }}</div>
         </li>
       {% endfor %}
+      {% if recipe.notes %}
+      <div class="recipe-notes">
+        <h3>Notes</h3>
+        <p>{{ recipe.notes }}</p>
+      </div>
+      {% endif %}
     </ol>
 
     <div class="recipe-actions">
